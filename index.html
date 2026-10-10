@@ -1,0 +1,583 @@
+```html
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendrier Hors Ligne</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 18px;
+  min-height: 100vh;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  background:
+    radial-gradient(ellipse at 50% 0%, #253c78 0%, #0b1028 45%, #02030a 100%);
+}
+
+.stars {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(white 1px, transparent 1.5px),
+    radial-gradient(#829aff 1px, transparent 1.5px);
+  background-size: 43px 43px, 67px 67px;
+  background-position: 0 0, 20px 27px;
+}
+
+h1 {
+  font-size: 27px;
+  text-shadow: 0 0 12px #7293ff;
+}
+
+h2 {
+  font-size: 22px;
+}
+
+.subtitle {
+  color: #bdcbff;
+}
+
+.eclipse {
+  width: 125px;
+  height: 125px;
+  border-radius: 50%;
+  margin: 25px auto;
+  background: #02030a;
+  box-shadow:
+    0 0 0 3px #a8baff,
+    0 0 15px 5px #718bff,
+    0 0 40px 12px #394fa8;
+}
+
+.page {
+  display: none;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.page.active {
+  display: block;
+}
+
+.panel {
+  padding: 18px;
+  margin: 12px auto;
+  border: 1px solid #405dff;
+  border-radius: 16px;
+  background: rgba(3, 8, 27, 0.88);
+  box-shadow: 0 0 15px rgba(56, 91, 255, 0.25);
+}
+
+input, button {
+  width: 100%;
+  padding: 13px;
+  margin: 7px 0;
+  border-radius: 11px;
+  font-size: 16px;
+}
+
+input {
+  color: white;
+  background: #080d20;
+  border: 1px solid #5275ff;
+}
+
+input::placeholder {
+  color: #aabaff;
+}
+
+button {
+  color: white;
+  background: #02030a;
+  border: 1px solid #8ba4ff;
+  box-shadow: 0 0 8px #536fff;
+  cursor: pointer;
+}
+
+button:active {
+  background: #1a2855;
+}
+
+.message {
+  color: #ffb8c5;
+  min-height: 20px;
+}
+
+.weekdays, #calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.weekdays div {
+  color: #b9c9ff;
+  padding: 8px 0;
+  font-size: 12px;
+}
+
+.day {
+  min-width: 0;
+  padding: 10px 0;
+  margin: 0;
+  font-size: 13px;
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.day.selected {
+  background: #243c83;
+  border: 2px solid white;
+  box-shadow: 0 0 12px #8099ff;
+}
+
+.day.has-event {
+  color: #ffe28a;
+}
+
+.month-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.month-navigation button {
+  width: 48px;
+  flex-shrink: 0;
+}
+
+#monthTitle {
+  flex: 1;
+  font-size: 17px;
+}
+
+#appointmentList {
+  text-align: left;
+  margin-top: 12px;
+}
+
+.appointment {
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid #536dff;
+  border-radius: 10px;
+  background: #101a38;
+  overflow-wrap: anywhere;
+}
+
+.appointment button {
+  width: auto;
+  padding: 6px 10px;
+  margin-left: 8px;
+  font-size: 13px;
+}
+
+.footer {
+  color: #a9baff;
+  font-size: 12px;
+  margin-top: 22px;
+}
+</style><link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#080b18">
+<link rel="apple-touch-icon" href="./icon-192.png">
+</head>
+
+<body>
+<div class="stars"></div>
+
+<h1>🌌 Calendrier Hors Ligne</h1>
+<p class="subtitle">Organise tes journées sous les étoiles</p>
+
+<!-- ACCUEIL -->
+<section id="home" class="page active">
+  <div class="panel">
+    <div class="eclipse"></div>
+    <h2>Bienvenue !</h2>
+    <p>Crée ton compte pour commencer.</p>
+    <button onclick="showPage('create')">👤 Créer un compte</button>
+    <button onclick="showPage('login')">🔑 Se connecter</button>
+  </div>
+</section>
+
+<!-- CREER UN COMPTE -->
+<section id="create" class="page">
+  <div class="panel">
+    <h2>Créer un compte</h2>
+    <input id="newFirst" placeholder="Prénom" autocomplete="given-name">
+    <input id="newLast" placeholder="Nom de famille" autocomplete="family-name">
+    <input id="newPassword" type="password" placeholder="Mot de passe" autocomplete="new-password">
+    <input id="confirmPassword" type="password" placeholder="Confirme le mot de passe" autocomplete="new-password">
+    <p id="createMessage" class="message"></p>
+    <button onclick="createAccount()">Créer mon compte</button>
+    <button onclick="showPage('home')">← Retour</button>
+  </div>
+</section>
+
+<!-- CONNEXION -->
+<section id="login" class="page">
+  <div class="panel">
+    <h2>Connexion</h2>
+    <input id="loginFirst" placeholder="Prénom" autocomplete="username">
+    <input id="loginLast" placeholder="Nom de famille">
+    <input id="loginPassword" type="password" placeholder="Mot de passe" autocomplete="current-password">
+    <p id="loginMessage" class="message"></p>
+    <button onclick="login()">Se connecter</button>
+    <button onclick="showPage('create')">Créer un compte</button>
+    <button onclick="showPage('home')">← Retour</button>
+  </div>
+</section>
+
+<!-- CALENDRIER -->
+<section id="calendarPage" class="page">
+  <div class="panel">
+    <h2>📅 Mon calendrier</h2>
+    <p id="welcome"></p>
+
+    <div class="month-navigation">
+      <button onclick="changeMonth(-1)" aria-label="Mois précédent">◀</button>
+      <strong id="monthTitle"></strong>
+      <button onclick="changeMonth(1)" aria-label="Mois suivant">▶</button>
+    </div>
+
+    <div class="weekdays">
+      <div>Lun</div>
+      <div>Mar</div>
+      <div>Mer</div>
+      <div>Jeu</div>
+      <div>Ven</div>
+      <div>Sam</div>
+      <div>Dim</div>
+    </div>
+
+    <div id="calendar"></div>
+
+    <h3 id="selectedDateTitle"></h3>
+
+    <input id="appointmentName" placeholder="Nom du rendez-vous">
+    <input id="appointmentTime" type="time">
+    <button onclick="addAppointment()">＋ Ajouter un rendez-vous</button>
+
+    <div id="appointmentList"></div>
+    <button onclick="logout()">🚪 Se déconnecter</button>
+  </div>
+</section>
+
+<p class="footer">Créateur : Jules · Avec ChatGPT</p>
+
+<script>
+const monthNames = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
+];
+
+let currentUser = null;
+let currentDate = new Date(2026, 9, 1);
+let selectedDate = new Date(2026, 9, 1);
+
+function showPage(id) {
+  document.querySelectorAll(".page").forEach(page => {
+    page.classList.remove("active");
+  });
+
+  document.getElementById(id).classList.add("active");
+}
+
+function getAccounts() {
+  try {
+    return JSON.parse(localStorage.getItem("calAccounts") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveAccounts(accounts) {
+  localStorage.setItem("calAccounts", JSON.stringify(accounts));
+}
+
+function accountKey(first, last) {
+  return (first + " " + last).toLowerCase();
+}
+
+function createAccount() {
+  const first = document.getElementById("newFirst").value.trim();
+  const last = document.getElementById("newLast").value.trim();
+  const password = document.getElementById("newPassword").value;
+  const confirm = document.getElementById("confirmPassword").value;
+  const message = document.getElementById("createMessage");
+
+  message.textContent = "";
+
+  if (!first || !last || !password || !confirm) {
+    message.textContent = "Remplis tous les champs !";
+    return;
+  }
+
+  if (password.length < 4) {
+    message.textContent = "Choisis au moins 4 caractères.";
+    return;
+  }
+
+  if (password !== confirm) {
+    message.textContent = "Les mots de passe sont différents.";
+    return;
+  }
+
+  const accounts = getAccounts();
+  const key = accountKey(first, last);
+
+  if (accounts.some(a => accountKey(a.first, a.last) === key)) {
+    message.textContent = "Ce compte existe déjà. Connecte-toi !";
+    return;
+  }
+
+  accounts.push({ first, last, password });
+  saveAccounts(accounts);
+
+  document.getElementById("newFirst").value = "";
+  document.getElementById("newLast").value = "";
+  document.getElementById("newPassword").value = "";
+  document.getElementById("confirmPassword").value = "";
+
+  alert("Compte créé ! Tu peux maintenant te connecter.");
+  showPage("login");
+}
+
+function login() {
+  const first = document.getElementById("loginFirst").value.trim();
+  const last = document.getElementById("loginLast").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  const message = document.getElementById("loginMessage");
+
+  const account = getAccounts().find(a =>
+    accountKey(a.first, a.last) === accountKey(first, last) &&
+    a.password === password
+  );
+
+  if (!account) {
+    message.textContent = "Informations incorrectes. Réessaie !";
+    return;
+  }
+
+  currentUser = accountKey(account.first, account.last);
+  document.getElementById("welcome").textContent =
+    "Bonjour " + account.first + " ! ✨";
+
+  document.getElementById("loginPassword").value = "";
+
+  // Ouvre le mois actuel
+  const now = new Date();
+  currentDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  renderCalendar();
+  showPage("calendarPage");
+}
+
+function logout() {
+  currentUser = null;
+  showPage("home");
+}
+
+function dateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return year + "-" + month + "-" + day;
+}
+
+function getAppointments() {
+  try {
+    const all = JSON.parse(localStorage.getItem("calAppointments") || "{}");
+    return all[currentUser] || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAppointments(appointments) {
+  const all = JSON.parse(localStorage.getItem("calAppointments") || "{}");
+  all[currentUser] = appointments;
+  localStorage.setItem("calAppointments", JSON.stringify(all));
+}
+
+function changeMonth(amount) {
+  currentDate = new Date(
+    currentDate.getFullYear(),
+    currentDate.getMonth() + amount,
+    1
+  );
+
+  selectedDate = new Date(
+    currentDate.getFullYear(),
+    currentDate.getMonth(),
+    1
+  );
+
+  renderCalendar();
+}
+
+function selectDay(day) {
+  selectedDate = new Date(
+    currentDate.getFullYear(),
+    currentDate.getMonth(),
+    day
+  );
+
+  renderCalendar();
+}
+
+function renderCalendar() {
+  if (!currentUser) return;
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  document.getElementById("monthTitle").textContent =
+    monthNames[month] + " " + year;
+
+  const calendar = document.getElementById("calendar");
+  calendar.innerHTML = "";
+
+  // Le calendrier commence le lundi.
+  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const appointments = getAppointments();
+
+  for (let i = 0; i < firstWeekday; i++) {
+    const empty = document.createElement("div");
+    calendar.appendChild(empty);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month, day);
+    const key = dateKey(date);
+    const button = document.createElement("button");
+
+    button.className = "day";
+    button.textContent = day;
+
+    if (dateKey(selectedDate) === key) {
+      button.classList.add("selected");
+    }
+
+    if (appointments[key] && appointments[key].length > 0) {
+      button.classList.add("has-event");
+      button.title = "Rendez-vous prévu";
+    }
+
+    button.onclick = () => selectDay(day);
+    calendar.appendChild(button);
+  }
+
+  const dateText = selectedDate.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  });
+
+  document.getElementById("selectedDateTitle").textContent =
+    dateText.charAt(0).toUpperCase() + dateText.slice(1);
+
+  renderAppointments();
+}
+
+function addAppointment() {
+  if (!currentUser) return;
+
+  const nameInput = document.getElementById("appointmentName");
+  const timeInput = document.getElementById("appointmentTime");
+  const name = nameInput.value.trim();
+  const time = timeInput.value || "Sans heure";
+
+  if (!name) {
+    alert("Écris le nom du rendez-vous !");
+    return;
+  }
+
+  const appointments = getAppointments();
+  const key = dateKey(selectedDate);
+
+  if (!appointments[key]) {
+    appointments[key] = [];
+  }
+
+  appointments[key].push({
+    id: Date.now(),
+    name: name,
+    time: time
+  });
+
+  saveAppointments(appointments);
+
+  nameInput.value = "";
+  timeInput.value = "";
+
+  renderCalendar();
+}
+
+function deleteAppointment(id) {
+  const appointments = getAppointments();
+  const key = dateKey(selectedDate);
+
+  appointments[key] = (appointments[key] || []).filter(item =>
+    item.id !== id
+  );
+
+  saveAppointments(appointments);
+  renderCalendar();
+}
+
+function renderAppointments() {
+  const list = document.getElementById("appointmentList");
+  list.innerHTML = "";
+
+  const appointments = getAppointments();
+  const events = appointments[dateKey(selectedDate)] || [];
+
+  if (events.length === 0) {
+    list.textContent = "Aucun rendez-vous pour cette journée.";
+    return;
+  }
+
+  events.sort((a, b) => a.time.localeCompare(b.time));
+
+  events.forEach(event => {
+    const item = document.createElement("div");
+    item.className = "appointment";
+
+    const description = document.createElement("span");
+    description.textContent = event.time + " · " + event.name;
+
+    const remove = document.createElement("button");
+    remove.textContent = "Supprimer";
+    remove.onclick = () => deleteAppointment(event.id);
+
+    item.appendChild(description);
+    item.appendChild(remove);
+    list.appendChild(item);
+  });
+}
+</script><script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js")
+      .catch(error => console.error("Service Worker :", error));
+  });
+}
+</script>
+
+</body>
+</html>
+```
