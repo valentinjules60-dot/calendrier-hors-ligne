@@ -1,0 +1,24 @@
+{
+  "id": "./",
+  "name": "Calendrier Hors Ligne",
+  "short_name": "Calendrier",
+  "description": "Un calendrier familial avec rendez-vous et rappels.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#100b2e",
+  "theme_color": "#6c3bff",
+  "lang": "fr-FR",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
