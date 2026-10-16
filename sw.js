@@ -1,9 +1,10 @@
-const CACHE_NAME = "calendrier-hors-ligne-v3";
+const CACHE_NAME = "calendrier-hors-ligne-v4";
 const CACHE_PREFIX = "calendrier-hors-ligne-";
 const APP_FILES = [
   "./",
   "./index.html",
   "./manifest.json",
+  "./sync-config.js",
   "./icon.svg",
   "./icon-192.png",
   "./icon-512.png"
