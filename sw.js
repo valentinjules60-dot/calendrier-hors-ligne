@@ -1,4 +1,4 @@
-const CACHE_NAME = "calendrier-hors-ligne-v5";
+const CACHE_NAME = "calendrier-hors-ligne-v6";
 const CACHE_PREFIX = "calendrier-hors-ligne-";
 const APP_FILES = [
   "./",
@@ -32,9 +32,23 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   const requestUrl = new URL(event.request.url);
+  const isSupabaseLibrary = requestUrl.origin === "https://cdn.jsdelivr.net"
+    && requestUrl.pathname.startsWith("/npm/@supabase/supabase-js@");
+  if (isSupabaseLibrary) {
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if (response.ok || response.type === "opaque") {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        }
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
   if (requestUrl.origin !== self.location.origin) return;
 
-  const isSyncConfig = new URL(event.request.url).pathname.endsWith("/sync-config.js");
+  const isSyncConfig = requestUrl.pathname.endsWith("/sync-config.js");
   if (isSyncConfig) {
     event.respondWith(
       fetch(event.request).then(response => {
