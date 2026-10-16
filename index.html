@@ -687,7 +687,7 @@ function addAppointment() {
   const appointments = getAppointments();
   const key = dateKey(selectedDate);
   if (!appointments[key]) appointments[key] = [];
-  const appointment = { id: Date.now(), name, time };
+  const appointment = { id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()), name, time };
   appointments[key].push(appointment);
   saveAppointments(appointments);
   queueAppointment("put", key, appointment);
