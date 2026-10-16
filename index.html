@@ -191,6 +191,7 @@ button:active {
 </style><link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#080b18">
 <link rel="apple-touch-icon" href="./icon-192.png">
+<script src="./sync-config.js"></script>
 </head>
 
 <body>
@@ -243,6 +244,8 @@ button:active {
   <div class="panel">
     <h2>📅 Mon calendrier</h2>
     <p id="welcome"></p>
+    <p id="syncStatus" class="footer"></p>
+    <button id="syncButton" onclick="syncNow()">☁ Synchroniser maintenant</button>
 
     <div class="month-navigation">
       <button onclick="changeMonth(-1)" aria-label="Mois précédent">◀</button>
@@ -282,8 +285,145 @@ const monthNames = [
 ];
 
 let currentUser = null;
+let sessionToken = localStorage.getItem("calSyncToken") || "";
+let syncBusy = false;
+const SYNC_API = String(window.CALENDAR_SYNC_API || "").replace(/\\/+$/, "");
 let currentDate = new Date(2026, 9, 1);
 let selectedDate = new Date(2026, 9, 1);
+
+function syncQueueKey() {
+  return "calSyncQueue:" + currentUser;
+}
+
+function setSyncStatus(message) {
+  const status = document.getElementById("syncStatus");
+  if (status) status.textContent = message;
+}
+
+async function apiRequest(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (sessionToken) headers.Authorization = "Bearer " + sessionToken;
+  const response = await fetch(SYNC_API + path, { ...options, headers });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "Connexion impossible.");
+  return result;
+}
+
+function saveCloudSession(first, last, token) {
+  sessionToken = token;
+  localStorage.setItem("calSyncToken", token);
+  localStorage.setItem("calSyncUser", JSON.stringify({ first, last }));
+  currentUser = accountKey(first, last);
+  document.getElementById("welcome").textContent = "Bonjour " + first + " ! ✨";
+}
+
+function getAppointmentsFor(userKey) {
+  try {
+    const all = JSON.parse(localStorage.getItem("calAppointments") || "{}");
+    return all[userKey] || {};
+  } catch {
+    return {};
+  }
+}
+
+function queueAppointment(operation, date, appointment) {
+  if (!SYNC_API || !sessionToken || !currentUser) return;
+  const key = syncQueueKey();
+  let queue = [];
+  try { queue = JSON.parse(localStorage.getItem(key) || "[]"); } catch {}
+  queue.push({ operation, date, appointment });
+  localStorage.setItem(key, JSON.stringify(queue));
+  syncNow();
+}
+
+function queueExistingAppointmentsOnce() {
+  const migrationKey = "calSyncMigrated:" + currentUser;
+  if (localStorage.getItem(migrationKey)) return;
+  const existing = getAppointmentsFor(currentUser);
+  const key = syncQueueKey();
+  let queue = [];
+  try { queue = JSON.parse(localStorage.getItem(key) || "[]"); } catch {}
+  for (const [date, events] of Object.entries(existing)) {
+    for (const appointment of events || []) {
+      queue.push({ operation: "put", date, appointment });
+    }
+  }
+  localStorage.setItem(key, JSON.stringify(queue));
+  localStorage.setItem(migrationKey, "1");
+}
+
+async function syncNow() {
+  if (!SYNC_API || !sessionToken || !currentUser || syncBusy || !navigator.onLine) {
+    if (SYNC_API && currentUser && !navigator.onLine) setSyncStatus("Hors connexion — les changements seront envoyés au retour d’Internet.");
+    return;
+  }
+  syncBusy = true;
+  setSyncStatus("Synchronisation…");
+  try {
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(syncQueueKey()) || "[]"); } catch {}
+    while (queue.length) {
+      const change = queue[0];
+      const id = encodeURIComponent(String(change.appointment.id));
+      if (change.operation === "delete") {
+        await apiRequest("/api/appointments/" + id, { method: "DELETE" });
+      } else {
+        await apiRequest("/api/appointments/" + id, {
+          method: "PUT",
+          body: JSON.stringify({
+            date: change.date,
+            name: change.appointment.name,
+            time: change.appointment.time
+          })
+        });
+      }
+      queue.shift();
+      localStorage.setItem(syncQueueKey(), JSON.stringify(queue));
+    }
+    const result = await apiRequest("/api/appointments");
+    const appointments = {};
+    for (const event of result.appointments || []) {
+      if (!appointments[event.date]) appointments[event.date] = [];
+      appointments[event.date].push({
+        id: /^\\d+$/.test(event.id) ? Number(event.id) : event.id,
+        name: event.name,
+        time: event.time
+      });
+    }
+    saveAppointments(appointments);
+    renderCalendar();
+    setSyncStatus("Synchronisé ✓");
+  } catch (error) {
+    setSyncStatus(error.message.includes("Session expirée")
+      ? "Reconnecte-toi pour reprendre la synchronisation."
+      : "Pas encore synchronisé — les changements restent sur cet appareil.");
+  } finally {
+    syncBusy = false;
+  }
+}
+
+async function activateCloudSession(first, last, token, migrateLocal = false) {
+  saveCloudSession(first, last, token);
+  if (migrateLocal) queueExistingAppointmentsOnce();
+  document.getElementById("loginPassword").value = "";
+  const now = new Date();
+  currentDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  renderCalendar();
+  showPage("calendarPage");
+  await syncNow();
+}
+
+window.addEventListener("online", syncNow);
+window.addEventListener("load", () => {
+  if (!SYNC_API) return;
+  try {
+    const user = JSON.parse(localStorage.getItem("calSyncUser") || "null");
+    if (user && sessionToken) activateCloudSession(user.first, user.last, sessionToken);
+  } catch {}
+  setInterval(syncNow, 30000);
+});
+
 
 function showPage(id) {
   document.querySelectorAll(".page").forEach(page => {
@@ -309,83 +449,122 @@ function accountKey(first, last) {
   return (first + " " + last).toLowerCase();
 }
 
-function createAccount() {
+
+async function createAccount() {
   const first = document.getElementById("newFirst").value.trim();
   const last = document.getElementById("newLast").value.trim();
   const password = document.getElementById("newPassword").value;
   const confirm = document.getElementById("confirmPassword").value;
   const message = document.getElementById("createMessage");
-
   message.textContent = "";
 
   if (!first || !last || !password || !confirm) {
     message.textContent = "Remplis tous les champs !";
     return;
   }
-
-  if (password.length < 4) {
-    message.textContent = "Choisis au moins 4 caractères.";
-    return;
-  }
-
   if (password !== confirm) {
     message.textContent = "Les mots de passe sont différents.";
     return;
   }
 
+  if (SYNC_API) {
+    if (password.length < 8) {
+      message.textContent = "Choisis un mot de passe d’au moins 8 caractères.";
+      return;
+    }
+    const oldData = getAppointmentsFor(accountKey(first, last));
+    try {
+      const result = await apiRequest("/api/register", {
+        method: "POST",
+        body: JSON.stringify({ first, last, password })
+      });
+      currentUser = accountKey(first, last);
+      localStorage.setItem("calAppointments", JSON.stringify({
+        ...JSON.parse(localStorage.getItem("calAppointments") || "{}"),
+        [currentUser]: oldData
+      }));
+      await activateCloudSession(first, last, result.token, true);
+      document.getElementById("newFirst").value = "";
+      document.getElementById("newLast").value = "";
+      document.getElementById("newPassword").value = "";
+      document.getElementById("confirmPassword").value = "";
+      message.textContent = "";
+      return;
+    } catch (error) {
+      message.textContent = error.message;
+      return;
+    }
+  }
+
+  if (password.length < 4) {
+    message.textContent = "Choisis au moins 4 caractères.";
+    return;
+  }
   const accounts = getAccounts();
   const key = accountKey(first, last);
-
   if (accounts.some(a => accountKey(a.first, a.last) === key)) {
     message.textContent = "Ce compte existe déjà. Connecte-toi !";
     return;
   }
-
   accounts.push({ first, last, password });
   saveAccounts(accounts);
-
   document.getElementById("newFirst").value = "";
   document.getElementById("newLast").value = "";
   document.getElementById("newPassword").value = "";
   document.getElementById("confirmPassword").value = "";
-
   alert("Compte créé ! Tu peux maintenant te connecter.");
   showPage("login");
 }
 
-function login() {
+
+async function login() {
   const first = document.getElementById("loginFirst").value.trim();
   const last = document.getElementById("loginLast").value.trim();
   const password = document.getElementById("loginPassword").value;
   const message = document.getElementById("loginMessage");
+  message.textContent = "";
+
+  if (SYNC_API) {
+    try {
+      const result = await apiRequest("/api/login", {
+        method: "POST",
+        body: JSON.stringify({ first, last, password })
+      });
+      await activateCloudSession(first, last, result.token, true);
+    } catch (error) {
+      message.textContent = error.message;
+    }
+    return;
+  }
 
   const account = getAccounts().find(a =>
     accountKey(a.first, a.last) === accountKey(first, last) &&
     a.password === password
   );
-
   if (!account) {
     message.textContent = "Informations incorrectes. Réessaie !";
     return;
   }
 
   currentUser = accountKey(account.first, account.last);
-  document.getElementById("welcome").textContent =
-    "Bonjour " + account.first + " ! ✨";
-
+  document.getElementById("welcome").textContent = "Bonjour " + account.first + " ! ✨";
   document.getElementById("loginPassword").value = "";
-
-  // Ouvre le mois actuel
   const now = new Date();
   currentDate = new Date(now.getFullYear(), now.getMonth(), 1);
   selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
   renderCalendar();
   showPage("calendarPage");
 }
 
-function logout() {
+
+async function logout() {
+  if (SYNC_API && sessionToken) {
+    try { await apiRequest("/api/logout", { method: "POST" }); } catch {}
+  }
   currentUser = null;
+  sessionToken = "";
+  localStorage.removeItem("calSyncToken");
+  localStorage.removeItem("calSyncUser");
   showPage("home");
 }
 
@@ -493,14 +672,13 @@ function renderCalendar() {
   renderAppointments();
 }
 
+
 function addAppointment() {
   if (!currentUser) return;
-
   const nameInput = document.getElementById("appointmentName");
   const timeInput = document.getElementById("appointmentTime");
   const name = nameInput.value.trim();
   const time = timeInput.value || "Sans heure";
-
   if (!name) {
     alert("Écris le nom du rendez-vous !");
     return;
@@ -508,34 +686,24 @@ function addAppointment() {
 
   const appointments = getAppointments();
   const key = dateKey(selectedDate);
-
-  if (!appointments[key]) {
-    appointments[key] = [];
-  }
-
-  appointments[key].push({
-    id: Date.now(),
-    name: name,
-    time: time
-  });
-
+  if (!appointments[key]) appointments[key] = [];
+  const appointment = { id: Date.now(), name, time };
+  appointments[key].push(appointment);
   saveAppointments(appointments);
-
+  queueAppointment("put", key, appointment);
   nameInput.value = "";
   timeInput.value = "";
-
   renderCalendar();
 }
+
 
 function deleteAppointment(id) {
   const appointments = getAppointments();
   const key = dateKey(selectedDate);
-
-  appointments[key] = (appointments[key] || []).filter(item =>
-    item.id !== id
-  );
-
+  const removed = (appointments[key] || []).find(item => item.id === id);
+  appointments[key] = (appointments[key] || []).filter(item => item.id !== id);
   saveAppointments(appointments);
+  if (removed) queueAppointment("delete", key, removed);
   renderCalendar();
 }
 
