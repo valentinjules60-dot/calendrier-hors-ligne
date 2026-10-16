@@ -1,0 +1,8 @@
+name = "calendrier-sync-api"
+main = "worker.js"
+compatibility_date = "2026-10-16"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "calendrier-sync"
+database_id = "REMPLACER_PAR_ID_D1"
