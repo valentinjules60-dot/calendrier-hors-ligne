@@ -287,7 +287,7 @@ const monthNames = [
 let currentUser = null;
 let sessionToken = localStorage.getItem("calSyncToken") || "";
 let syncBusy = false;
-const SYNC_API = String(window.CALENDAR_SYNC_API || "").replace(/\\/+$/, "");
+const SYNC_API = (() => { let value = String(window.CALENDAR_SYNC_API || ""); while (value.endsWith("/")) value = value.slice(0, -1); return value; })();
 let currentDate = new Date(2026, 9, 1);
 let selectedDate = new Date(2026, 9, 1);
 
