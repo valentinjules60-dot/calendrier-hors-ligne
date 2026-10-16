@@ -22,7 +22,16 @@ Le forfait gratuit suffit pour commencer, mais Supabase peut mettre en pause un 
 
 Ce SQL crée une table et des règles qui font que chaque compte ne peut consulter et modifier que ses propres rendez-vous.
 
-## 3. Récupérer les deux informations de connexion
+## 3. Régler l’adresse de retour des e-mails
+
+1. Dans le menu du projet, ouvre **Authentication**, puis **URL Configuration**.
+2. Dans **Site URL**, indique :
+   `https://valentinjules60-dot.github.io/calendrier-hors-ligne/`
+3. Dans **Redirect URLs**, ajoute la même adresse puis enregistre.
+
+Cela permet au lien de confirmation d’e-mail de revenir vers le calendrier.
+
+## 4. Récupérer les deux informations de connexion
 
 1. Dans Supabase, ouvre **Connect** (ou **Project Settings → API Keys**).
 2. Copie le **Project URL**.
@@ -31,7 +40,7 @@ Ce SQL crée une table et des règles qui font que chaque compte ne peut consult
 
 La clé publishable est conçue pour être utilisée dans un navigateur lorsque la table est protégée par les règles d’accès SQL. [Clés API Supabase](https://supabase.com/docs/guides/getting-started/api-keys)
 
-## 4. Relier le site à Supabase
+## 5. Relier le site à Supabase
 
 1. Ouvre [sync-config.js](https://github.com/valentinjules60-dot/calendrier-hors-ligne/blob/main/sync-config.js) dans GitHub, puis clique sur le crayon **Edit this file**.
 2. Remplace les deux valeurs vides par celles de Supabase. Exemple :
@@ -45,7 +54,7 @@ La clé publishable est conçue pour être utilisée dans un navigateur lorsque 
 4. Dans GitHub, ouvre l’onglet **Actions** du dépôt et attends que le déploiement GitHub Pages soit terminé.
 5. Recharge le calendrier sur ton PC.
 
-## 5. Créer le compte et connecter la tablette
+## 6. Créer le compte et connecter la tablette
 
 1. Sur le PC, ouvre le calendrier et clique sur **Créer un compte**.
 2. Remplis ton prénom, ton nom, ton adresse e-mail et un mot de passe d’au moins 8 caractères.
