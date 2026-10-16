@@ -190,6 +190,7 @@ button:active {
 </style><link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#080b18">
 <link rel="apple-touch-icon" href="./icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="./sync-config.js"></script>
 </head>
 
@@ -216,6 +217,7 @@ button:active {
     <h2>Créer un compte</h2>
     <input id="newFirst" placeholder="Prénom" autocomplete="given-name">
     <input id="newLast" placeholder="Nom de famille" autocomplete="family-name">
+    <input id="newEmail" type="email" placeholder="Adresse e-mail" autocomplete="email">
     <input id="newPassword" type="password" placeholder="Mot de passe" autocomplete="new-password">
     <input id="confirmPassword" type="password" placeholder="Confirme le mot de passe" autocomplete="new-password">
     <p id="createMessage" class="message"></p>
@@ -230,6 +232,7 @@ button:active {
     <h2>Connexion</h2>
     <input id="loginFirst" placeholder="Prénom" autocomplete="username">
     <input id="loginLast" placeholder="Nom de famille">
+    <input id="loginEmail" type="email" placeholder="Adresse e-mail" autocomplete="email">
     <input id="loginPassword" type="password" placeholder="Mot de passe" autocomplete="current-password">
     <p id="loginMessage" class="message"></p>
     <button onclick="login()">Se connecter</button>
@@ -286,7 +289,16 @@ const monthNames = [
 let currentUser = null;
 let sessionToken = localStorage.getItem("calSyncToken") || "";
 let syncBusy = false;
-const SYNC_API = (() => { let value = String(window.CALENDAR_SYNC_API || ""); while (value.endsWith("/")) value = value.slice(0, -1); return value; })();
+const SUPABASE_CONFIG = window.CALENDAR_SYNC_CONFIG || {};
+let supabaseClient = null;
+try {
+  if (SUPABASE_CONFIG.url && SUPABASE_CONFIG.publishableKey && window.supabase) {
+    supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.publishableKey);
+  }
+} catch (error) {
+  console.error("Configuration Supabase :", error);
+}
+const SYNC_ENABLED = Boolean(supabaseClient);
 let currentDate = new Date(2026, 9, 1);
 let selectedDate = new Date(2026, 9, 1);
 
@@ -300,12 +312,74 @@ function setSyncStatus(message) {
 }
 
 async function apiRequest(path, options = {}) {
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (sessionToken) headers.Authorization = "Bearer " + sessionToken;
-  const response = await fetch(SYNC_API + path, { ...options, headers });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "Connexion impossible.");
-  return result;
+  if (!supabaseClient) throw new Error("La synchronisation en ligne n’est pas encore configurée.");
+  const body = options.body ? JSON.parse(options.body) : {};
+
+  if (path === "/api/register" && options.method === "POST") {
+    const { data, error } = await supabaseClient.auth.signUp({
+      email: body.email,
+      password: body.password,
+      options: { data: { first_name: body.first, last_name: body.last } }
+    });
+    if (error) throw error;
+    if (!data.session) return { needsConfirmation: true };
+    return { token: data.session.access_token, user: data.user };
+  }
+
+  if (path === "/api/login" && options.method === "POST") {
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
+      email: body.email,
+      password: body.password
+    });
+    if (error) throw error;
+    return { token: data.session.access_token, user: data.user };
+  }
+
+  if (path === "/api/logout" && options.method === "POST") {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) throw error;
+    return { ok: true };
+  }
+
+  if (path === "/api/appointments" && (!options.method || options.method === "GET")) {
+    const { data, error } = await supabaseClient
+      .from("appointments")
+      .select("id, appointment_date, name, time")
+      .order("appointment_date")
+      .order("time");
+    if (error) throw error;
+    return { appointments: (data || []).map(event => ({
+      id: event.id,
+      date: event.appointment_date,
+      name: event.name,
+      time: event.time
+    })) };
+  }
+
+  const match = path.match(/^\/api\/appointments\/([^/]+)$/);
+  if (match && options.method === "PUT") {
+    const { data: sessionData } = await supabaseClient.auth.getSession();
+    const userId = sessionData.session && sessionData.session.user.id;
+    if (!userId) throw new Error("Session expirée. Reconnecte-toi.");
+    const { error } = await supabaseClient.from("appointments").upsert({
+      id: decodeURIComponent(match[1]),
+      user_id: userId,
+      appointment_date: body.date,
+      name: body.name,
+      time: body.time
+    }, { onConflict: "user_id,id" });
+    if (error) throw error;
+    return { ok: true };
+  }
+
+  if (match && options.method === "DELETE") {
+    const { error } = await supabaseClient.from("appointments")
+      .delete().eq("id", decodeURIComponent(match[1]));
+    if (error) throw error;
+    return { ok: true };
+  }
+
+  throw new Error("Action de synchronisation inconnue.");
 }
 
 function saveCloudSession(first, last, token) {
@@ -326,7 +400,7 @@ function getAppointmentsFor(userKey) {
 }
 
 function queueAppointment(operation, date, appointment) {
-  if (!SYNC_API || !sessionToken || !currentUser) return;
+  if (!SYNC_ENABLED || !sessionToken || !currentUser) return;
   const key = syncQueueKey();
   let queue = [];
   try { queue = JSON.parse(localStorage.getItem(key) || "[]"); } catch {}
@@ -352,8 +426,8 @@ function queueExistingAppointmentsOnce() {
 }
 
 async function syncNow() {
-  if (!SYNC_API || !sessionToken || !currentUser || syncBusy || !navigator.onLine) {
-    if (SYNC_API && currentUser && !navigator.onLine) setSyncStatus("Hors connexion — les changements seront envoyés au retour d’Internet.");
+  if (!SYNC_ENABLED || !sessionToken || !currentUser || syncBusy || !navigator.onLine) {
+    if (SYNC_ENABLED && currentUser && !navigator.onLine) setSyncStatus("Hors connexion — les changements seront envoyés au retour d’Internet.");
     return;
   }
   syncBusy = true;
@@ -414,12 +488,25 @@ async function activateCloudSession(first, last, token, migrateLocal = false) {
 }
 
 window.addEventListener("online", syncNow);
-window.addEventListener("load", () => {
-  if (!SYNC_API) return;
+window.addEventListener("load", async () => {
+  if (!SYNC_ENABLED) {
+    setSyncStatus("Mode hors ligne — configure la synchronisation Supabase pour partager les rendez-vous.");
+    return;
+  }
   try {
-    const user = JSON.parse(localStorage.getItem("calSyncUser") || "null");
-    if (user && sessionToken) activateCloudSession(user.first, user.last, sessionToken);
-  } catch {}
+    const { data } = await supabaseClient.auth.getSession();
+    const user = data.session && data.session.user;
+    if (user) {
+      const metadata = user.user_metadata || {};
+      await activateCloudSession(
+        metadata.first_name || user.email,
+        metadata.last_name || "",
+        data.session.access_token
+      );
+    }
+  } catch (error) {
+    setSyncStatus("Connecte-toi pour synchroniser tes rendez-vous.");
+  }
   setInterval(syncNow, 30000);
 });
 
@@ -452,13 +539,16 @@ function accountKey(first, last) {
 async function createAccount() {
   const first = document.getElementById("newFirst").value.trim();
   const last = document.getElementById("newLast").value.trim();
+  const email = document.getElementById("newEmail").value.trim();
   const password = document.getElementById("newPassword").value;
   const confirm = document.getElementById("confirmPassword").value;
   const message = document.getElementById("createMessage");
   message.textContent = "";
 
-  if (!first || !last || !password || !confirm) {
-    message.textContent = "Remplis tous les champs !";
+  if (!first || !last || !password || !confirm || (SYNC_ENABLED && !email)) {
+    message.textContent = SYNC_ENABLED
+      ? "Remplis tous les champs, y compris l’adresse e-mail."
+      : "Remplis tous les champs !";
     return;
   }
   if (password !== confirm) {
@@ -466,7 +556,7 @@ async function createAccount() {
     return;
   }
 
-  if (SYNC_API) {
+  if (SYNC_ENABLED) {
     if (password.length < 8) {
       message.textContent = "Choisis un mot de passe d’au moins 8 caractères.";
       return;
@@ -475,8 +565,12 @@ async function createAccount() {
     try {
       const result = await apiRequest("/api/register", {
         method: "POST",
-        body: JSON.stringify({ first, last, password })
+        body: JSON.stringify({ first, last, email, password })
       });
+      if (result.needsConfirmation) {
+        message.textContent = "Compte créé. Confirme ton adresse e-mail depuis le message reçu, puis connecte-toi.";
+        return;
+      }
       currentUser = accountKey(first, last);
       localStorage.setItem("calAppointments", JSON.stringify({
         ...JSON.parse(localStorage.getItem("calAppointments") || "{}"),
@@ -485,12 +579,13 @@ async function createAccount() {
       await activateCloudSession(first, last, result.token, true);
       document.getElementById("newFirst").value = "";
       document.getElementById("newLast").value = "";
+      document.getElementById("newEmail").value = "";
       document.getElementById("newPassword").value = "";
       document.getElementById("confirmPassword").value = "";
       message.textContent = "";
       return;
     } catch (error) {
-      message.textContent = error.message;
+      message.textContent = error.message || "Impossible de créer le compte.";
       return;
     }
   }
@@ -515,23 +610,26 @@ async function createAccount() {
   showPage("login");
 }
 
-
 async function login() {
   const first = document.getElementById("loginFirst").value.trim();
   const last = document.getElementById("loginLast").value.trim();
+  const email = document.getElementById("loginEmail").value.trim();
   const password = document.getElementById("loginPassword").value;
   const message = document.getElementById("loginMessage");
   message.textContent = "";
 
-  if (SYNC_API) {
+  if (SYNC_ENABLED) {
     try {
       const result = await apiRequest("/api/login", {
         method: "POST",
-        body: JSON.stringify({ first, last, password })
+        body: JSON.stringify({ email, password })
       });
-      await activateCloudSession(first, last, result.token, true);
+      const metadata = result.user.user_metadata || {};
+      const accountFirst = first || metadata.first_name || result.user.email;
+      const accountLast = last || metadata.last_name || "";
+      await activateCloudSession(accountFirst, accountLast, result.token, true);
     } catch (error) {
-      message.textContent = error.message;
+      message.textContent = error.message || "Identifiants incorrects.";
     }
     return;
   }
@@ -555,9 +653,8 @@ async function login() {
   showPage("calendarPage");
 }
 
-
 async function logout() {
-  if (SYNC_API && sessionToken) {
+  if (SYNC_ENABLED && sessionToken) {
     try { await apiRequest("/api/logout", { method: "POST" }); } catch {}
   }
   currentUser = null;
