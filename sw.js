@@ -1,46 +1,47 @@
-const CACHE_NAME = "calendrier-hors-ligne-v1";
-
-const FILES = [
-"./",
-"./index.html",
-"./manifest.json"
+const CACHE_NAME = "calendrier-hors-ligne-v2";
+const CACHE_PREFIX = "calendrier-hors-ligne-";
+const APP_FILES = [
+  "./",
+  "./index.html",
+  "./manifest.json",
+  "./icon.svg",
+  "./icon-512.png"
 ];
 
 self.addEventListener("install", event => {
-event.waitUntil(
-caches.open(CACHE_NAME).then(cache =>
-cache.addAll(FILES)
-)
-);
-self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_FILES))
+  );
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", event => {
-event.waitUntil(
-caches.keys().then(keys =>
-Promise.all(
-keys
-.filter(key => key !== CACHE_NAME)
-.map(key => caches.delete(key))
-)
-)
-);
-self.clients.claim();
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(
+        keys
+          .filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+          .map(key => caches.delete(key))
+      )
+    ).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener("fetch", event => {
-if (event.request.method !== "GET") return;
+  if (event.request.method !== "GET") return;
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) return;
 
-event.respondWith(
-caches.match(event.request).then(cached => {
-if (cached) return cached;
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
 
-```
-  return fetch(event.request).catch(() =>
-    caches.match("./index.html")
+      return fetch(event.request).catch(() => {
+        if (event.request.mode === "navigate") {
+          return caches.match(new URL("./index.html", self.location).toString());
+        }
+        return Response.error();
+      });
+    })
   );
-})
-```
-
-);
 });
